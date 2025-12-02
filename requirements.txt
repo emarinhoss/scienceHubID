@@ -1,0 +1,6 @@
+# Python dependencies for scienceHubID
+# Install with: pip install -r requirements.txt
+
+# Optional: Only required if using GROBID parser
+# Uncomment the line below to install GROBID client
+# grobid-client-python>=0.8.0

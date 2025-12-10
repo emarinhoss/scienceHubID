@@ -63,7 +63,7 @@ def parse_references_grobid(filepath, grobid_server='http://localhost:8070'):
             client.process(
                 service="processCitationList",
                 input_path=filepath,
-                output_path=temp_output_dir,
+                output=temp_output_dir,
                 n=10
             )
 

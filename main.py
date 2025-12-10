@@ -54,22 +54,18 @@ def parse_references_grobid(filepath, grobid_server='http://localhost:8070'):
 
     # Create a temporary output directory
     with tempfile.TemporaryDirectory() as temp_output_dir:
-        # Create a config for GROBID client
-        config = {
-            'grobid_server': grobid_server,
-            'batch_size': 1000,
-            'coordinates': ['persName', 'figure', 'ref', 'biblStruct', 'formula'],
-            'sleep_time': 5,
-            'timeout': 60,
-            'n': 10
-        }
-
-        client = GrobidClient(config=config)
+        # Initialize GROBID client with server URL
+        client = GrobidClient(grobid_server=grobid_server)
 
         # GROBID expects input file with one reference per line
         try:
             # Process the citation list
-            client.process_citation(filepath, temp_output_dir, n=10)
+            client.process(
+                service="processCitationList",
+                input_path=filepath,
+                output_path=temp_output_dir,
+                n=10
+            )
 
             # Read the output XML file
             output_filename = os.path.splitext(os.path.basename(filepath))[0] + '.tei.xml'

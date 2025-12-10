@@ -40,10 +40,12 @@ def parse_references_anystyle(filepath):
         print(f"Raw output was: {result.stdout}")
         return None
 
-def parse_references_grobid(filepath, grobid_server='http://localhost:8070'):
+def parse_references_grobid(filepath, grobid_server='http://localhost:8070', batch_size=10000):
     """
     Uses GROBID to parse a file of references.
     Each line in the file should be a separate reference.
+
+    For large files, splits into batches to avoid overwhelming the server.
     """
     try:
         from grobid_client.grobid_client import GrobidClient
@@ -52,45 +54,75 @@ def parse_references_grobid(filepath, grobid_server='http://localhost:8070'):
         print("Install it with: pip install grobid-client-python")
         return None
 
-    # Create temporary input and output directories
-    with tempfile.TemporaryDirectory() as temp_input_dir, \
-         tempfile.TemporaryDirectory() as temp_output_dir:
+    # Read all references
+    with open(filepath, 'r', encoding='utf-8') as f:
+        references = f.readlines()
 
-        # Copy the file to the input directory with a .txt extension
-        input_filename = 'references.txt'
-        input_file_path = os.path.join(temp_input_dir, input_filename)
-        shutil.copy(filepath, input_file_path)
+    total_refs = len(references)
+    print(f"Processing {total_refs} references in batches of {batch_size}...")
 
-        # Initialize GROBID client with server URL
-        client = GrobidClient(grobid_server=grobid_server)
+    all_parsed_refs = []
 
-        # GROBID expects input directory with .txt files (one reference per line)
-        try:
-            # Process the citation list
-            client.process(
-                service="processCitationList",
-                input_path=temp_input_dir,
-                output=temp_output_dir,
-                n=10
-            )
+    # Process in batches
+    for batch_start in range(0, total_refs, batch_size):
+        batch_end = min(batch_start + batch_size, total_refs)
+        batch_num = (batch_start // batch_size) + 1
+        total_batches = (total_refs + batch_size - 1) // batch_size
 
-            # Read the output XML file
-            output_filename = os.path.splitext(input_filename)[0] + '.tei.xml'
-            output_path = os.path.join(temp_output_dir, output_filename)
+        print(f"Processing batch {batch_num}/{total_batches} (references {batch_start+1}-{batch_end})...")
 
-            if not os.path.exists(output_path):
-                print(f"Error: GROBID did not produce output file: {output_path}")
-                # List files in output directory for debugging
-                print(f"Files in output directory: {os.listdir(temp_output_dir)}")
-                return None
+        # Create temporary input and output directories for this batch
+        with tempfile.TemporaryDirectory() as temp_input_dir, \
+             tempfile.TemporaryDirectory() as temp_output_dir:
 
-            # Parse the GROBID XML output
-            return parse_grobid_xml(output_path)
+            # Write batch to a file
+            input_filename = f'batch_{batch_num}.txt'
+            input_file_path = os.path.join(temp_input_dir, input_filename)
 
-        except Exception as e:
-            print(f"Error processing with GROBID: {e}")
-            print(f"Make sure GROBID server is running at {grobid_server}")
-            return None
+            with open(input_file_path, 'w', encoding='utf-8') as batch_file:
+                batch_file.writelines(references[batch_start:batch_end])
+
+            # Initialize GROBID client with server URL
+            client = GrobidClient(grobid_server=grobid_server)
+
+            # GROBID expects input directory with .txt files (one reference per line)
+            try:
+                # Process the citation list
+                client.process(
+                    service="processCitationList",
+                    input_path=temp_input_dir,
+                    output=temp_output_dir,
+                    n=10
+                )
+
+                # Read the output XML file
+                output_filename = os.path.splitext(input_filename)[0] + '.tei.xml'
+                output_path = os.path.join(temp_output_dir, output_filename)
+
+                if not os.path.exists(output_path):
+                    print(f"Warning: GROBID did not produce output for batch {batch_num}")
+                    # List files in output directory for debugging
+                    print(f"Files in output directory: {os.listdir(temp_output_dir)}")
+                    # Add empty results for this batch to maintain order
+                    batch_parsed = [{'type': 'unknown'} for _ in range(batch_end - batch_start)]
+                else:
+                    # Parse the GROBID XML output
+                    batch_parsed = parse_grobid_xml(output_path)
+                    if not batch_parsed:
+                        # If parsing failed, add empty results
+                        batch_parsed = [{'type': 'unknown'} for _ in range(batch_end - batch_start)]
+
+                all_parsed_refs.extend(batch_parsed)
+                print(f"Batch {batch_num} completed: {len(batch_parsed)} references processed")
+
+            except Exception as e:
+                print(f"Error processing batch {batch_num} with GROBID: {e}")
+                # Add empty results for failed batch to maintain order
+                batch_parsed = [{'type': 'unknown'} for _ in range(batch_end - batch_start)]
+                all_parsed_refs.extend(batch_parsed)
+
+    print(f"Completed processing all {len(all_parsed_refs)} references")
+    return all_parsed_refs if all_parsed_refs else None
 
 def parse_grobid_xml(xml_filepath):
     """
@@ -152,7 +184,7 @@ def is_journal_article(parsed_reference, parser_type='anystyle'):
 
     return False
 
-def main(input_file, output_file, parser_type='anystyle', grobid_server='http://localhost:8070'):
+def main(input_file, output_file, parser_type='anystyle', grobid_server='http://localhost:8070', batch_size=10000):
     """
     Reads patent references from a CSV file, parses them,
     and filters for journal articles.
@@ -162,6 +194,7 @@ def main(input_file, output_file, parser_type='anystyle', grobid_server='http://
         output_file: Path to output CSV file
         parser_type: 'anystyle' or 'grobid'
         grobid_server: GROBID server URL (only used if parser_type='grobid')
+        batch_size: Number of references per batch for GROBID (default: 10000)
     """
     # Validate parser availability
     if parser_type == 'anystyle':
@@ -202,7 +235,7 @@ def main(input_file, output_file, parser_type='anystyle', grobid_server='http://
     if parser_type == 'anystyle':
         parsed_references = parse_references_anystyle(temp_filepath)
     elif parser_type == 'grobid':
-        parsed_references = parse_references_grobid(temp_filepath, grobid_server)
+        parsed_references = parse_references_grobid(temp_filepath, grobid_server, batch_size)
 
     # Clean up the temporary file
     os.remove(temp_filepath)
@@ -239,8 +272,8 @@ Examples:
   # Use GROBID (requires GROBID server running)
   python3 main.py input.csv output.csv --parser grobid
 
-  # Use GROBID with custom server URL
-  python3 main.py input.csv output.csv --parser grobid --grobid-server http://localhost:8080
+  # Use GROBID with custom server URL and batch size
+  python3 main.py input.csv output.csv --parser grobid --grobid-server http://localhost:8080 --batch-size 5000
         """
     )
     parser.add_argument('input_file', help='The path to the input CSV file.')
@@ -249,5 +282,7 @@ Examples:
                         help='Parser to use: anystyle (default) or grobid')
     parser.add_argument('--grobid-server', default='http://localhost:8070',
                         help='GROBID server URL (default: http://localhost:8070)')
+    parser.add_argument('--batch-size', type=int, default=10000,
+                        help='Batch size for GROBID processing (default: 10000)')
     args = parser.parse_args()
-    main(args.input_file, args.output_file, args.parser, args.grobid_server)
+    main(args.input_file, args.output_file, args.parser, args.grobid_server, args.batch_size)

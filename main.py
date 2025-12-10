@@ -52,27 +52,36 @@ def parse_references_grobid(filepath, grobid_server='http://localhost:8070'):
         print("Install it with: pip install grobid-client-python")
         return None
 
-    # Create a temporary output directory
-    with tempfile.TemporaryDirectory() as temp_output_dir:
+    # Create temporary input and output directories
+    with tempfile.TemporaryDirectory() as temp_input_dir, \
+         tempfile.TemporaryDirectory() as temp_output_dir:
+
+        # Copy the file to the input directory with a .txt extension
+        input_filename = 'references.txt'
+        input_file_path = os.path.join(temp_input_dir, input_filename)
+        shutil.copy(filepath, input_file_path)
+
         # Initialize GROBID client with server URL
         client = GrobidClient(grobid_server=grobid_server)
 
-        # GROBID expects input file with one reference per line
+        # GROBID expects input directory with .txt files (one reference per line)
         try:
             # Process the citation list
             client.process(
                 service="processCitationList",
-                input_path=filepath,
+                input_path=temp_input_dir,
                 output=temp_output_dir,
                 n=10
             )
 
             # Read the output XML file
-            output_filename = os.path.splitext(os.path.basename(filepath))[0] + '.tei.xml'
+            output_filename = os.path.splitext(input_filename)[0] + '.tei.xml'
             output_path = os.path.join(temp_output_dir, output_filename)
 
             if not os.path.exists(output_path):
                 print(f"Error: GROBID did not produce output file: {output_path}")
+                # List files in output directory for debugging
+                print(f"Files in output directory: {os.listdir(temp_output_dir)}")
                 return None
 
             # Parse the GROBID XML output

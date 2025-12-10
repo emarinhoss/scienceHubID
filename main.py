@@ -96,7 +96,8 @@ def parse_references_grobid(filepath, grobid_server='http://localhost:8070', bat
                 )
 
                 # Read the output XML file
-                output_filename = os.path.splitext(input_filename)[0] + '.tei.xml'
+                # GROBID creates files with .grobid.tei.xml extension
+                output_filename = os.path.splitext(input_filename)[0] + '.grobid.tei.xml'
                 output_path = os.path.join(temp_output_dir, output_filename)
 
                 if not os.path.exists(output_path):
